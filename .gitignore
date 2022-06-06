@@ -1,0 +1,9 @@
+examples_source
+*.pdf
+*.tar
+*.out
+*.o
+*.gch
+*.tar.gz
+*.mp4
+.vscode
