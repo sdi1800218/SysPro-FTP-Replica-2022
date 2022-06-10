@@ -1,4 +1,4 @@
-/* dataServer.c
+/* remoteClient.c
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,131 +9,12 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
+#include <sys/socket.h>     /* for socket handling */
+#include <netinet/in.h>     /* for sockaddr_in */
+#include <arpa/inet.h>      /* for hton */
 
 #include "queue_sedgewick/Queue.h"
 #include "remoteClient.h"
-
-pid_t listener_pid;
-
-/* SIGINT Handler */
-void int_handler(int signal) {
-    printf("[Manager::int_handler] Received a SIGINT\n");
-
-    // kill thy Listener TODO
-    kill(listener_pid, SIGKILL);
-    //wait(0);
-
-    int count_active = 0;
-    pid_t child;
-
-    while ( !QUEUEempty(avail_workers) ) {
-        child = QUEUEget(avail_workers);
-        ++count_active;
-
-        printf("[Manager::int_handler] Sending SIGKILL to Child: %d\n", child);
-        kill(child, SIGKILL);
-    }
-
-    // SIGSEGV
-    //free(avail_workers);
-
-    // clear named pipes
-    for(int i = 0; i < count_active; ++i) {
-        printf("[Manager::int_handler] Removing fifo with name %s\n", work[i].pipe);
-        remove(work[i].pipe);
-    }
-
-    // Wait workers
-    for (int i = 0; i < count_active; ++i) {
-        fprintf(stderr, "Child %d DIED\n", i+1);
-        wait(0);
-    }
-
-    printf("[Manager::int_handler] Handled Succcessfully!\n");
-
-    exit(0);
-}
-
-/* SIGCHLD Handler */
-void child_handler(int signal) {
-    pid_t child;
-    int status;
-
-    // Receive signal
-    printf("[Manager::child_handler] Received a SIGCHLD");
-
-    // Get PID of caller
-    //while ( (child = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
-    if ( (child = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
-        printf(" from child with PID %d\n", (int) child);
-        // Append PID of child in avail queue
-        QUEUEput(avail_workers, child);
-    }
-
-    //printf("HANDLED\n");
-
-    //return;
-}
-
-/* Inits random number of workers and makes them available in the Queue */
-int init_workers(Q *Queue) {
-
-    printf("[Manager::init_workers] Initializing workers\n");
-
-    // Initialize work array with 0s and NULLs
-    for (int work_entry = 0; work_entry < MAXWORKERS; ++work_entry) {
-        work[work_entry].pid = 0;
-        //work[work_entry].pipe = NULL;
-
-        // Create pipe of the form worker + num of child
-        char num = ('0' + work_entry);
-        char fifo[10] = WORKERNAME;
-
-        strncat(fifo, &num, 1);
-
-        work[work_entry].pipe = malloc(10 * sizeof(char));
-        strncpy(work[work_entry].pipe, fifo, 10);
-        //work[work_entry].pipe = fifo;
-    }
-
-    // rand is current pid mod 4 [1, 4]
-    int random = (getpid() % 4) + 1;
-
-    for (int child = 0; child < random; ++child) {
-
-        // Test worker able to be created
-        pid_t helper;
-        if ((helper = fork()) < 0) {
-            perror("[Manager] Failed to fork() worker");
-            exit(EXIT_FAILURE);
-        }
-
-        if (helper > 0) {
-            work[child].pid = helper;
-            //printf("[Manager::init_workers] Created worker with PID: %d\n", helper);
-        }
-
-        // Call the worker
-        if (helper == 0) {
-            //printf("Child num: %d\tfifo name %s\n", child, fifo);
-            child_worker(work[child].pipe);
-            exit(0);
-        }
-    }
-
-    for (int child = 0; child < random; ++child) {
-        // Create named pipe
-        if (mkfifo(work[child].pipe, PERM) == -1) {
-            if ( errno != EEXIST ) {
-                perror("[Manager] mkfifo");
-                exit(6);
-            }
-        }
-    }
-
-    return random;
-}
 
 /* Extracts the filename from inotifywait events */
 char *get_filename(char *str) {
@@ -158,101 +39,46 @@ char *get_filename(char *str) {
     return result;
 }
 
-/* Given a pid of a worker, find its named pipe */
-char *fetch_pipe(pid_t pid) {
-
-    int i = 0;
-
-    printf("[Manager::fetch_pipe] Fetching pipe for PID %d\n", (int) pid);
-
-    while (work[i].pid != 0) {
-        //printf("%s\n", work[i].pipe);
-
-        if (pid == work[i].pid) {
-            printf("[Manager::fetch_pipe] Pipe name: %s\n", work[i].pipe);
-            return work[i].pipe;
-        }
-
-        ++i;
-    }
-    return NULL;
-}
-
-/* Creates a new worker child process */
-pid_t make_new_worker(int curr_num) {
-     // Test worker able to be created
-    pid_t helper;
-    if ((helper = fork()) < 0) {
-        perror("[Manager] Failed to fork() worker");
-        exit(EXIT_FAILURE);
-    }
-
-    if (helper > 0) {
-        work[curr_num].pid = helper;
-        //printf("[Manager::init_workers] Created worker with PID: %d\n", helper);
-    }
-
-    // Call the worker
-    if (helper == 0) {
-        //printf("Child num: %d\tfifo name %s\n", child, fifo);
-        child_worker(work[curr_num].pipe);
-        exit(0);
-    }
-
-    // Create named pipe
-    if (mkfifo(work[curr_num].pipe, PERM) == -1) {
-        if ( errno != EEXIST ) {
-            perror("[Manager] mkfifo");
-            exit(6);
-        }
-    }
-
-    return helper;
-}
-
 /* Print usage */
 void usage(char *exec_name) {
-    fprintf(stderr, "Usage: %s -i <server_ip> -p <server_port> \
-                    -d <dir>\n", exec_name);
+    fprintf(stderr, "Usage: %s -i <server_ip> -p <server_port> " \
+                    "-d <dir>\n", exec_name);
     exit(EXIT_FAILURE);
 }
 
 /* Connect socket to remote server */
-int connect_to_server(socket sock, struct sockaddr_in *server) {
-    server.sin_addr.s_addr = inet_addr("74.125.235.20");
-	server.sin_family = AF_INET;
+int connect2server(int sock, int port, struct sockaddr_in *server) {
+    //server.sin_addr.s_addr = inet_addr("");
+
 
 	//Connect to remote server
 	return connect(sock, (struct sockaddr *)&server , sizeof(server));
 }
 
-
 /* Manager: creates a pipe and a listener, handles the workers */
 int main(int argc, char *argv[]) {
 
-    int opt, listen[2], numofworkers;
-    char *dir;
-    pid_t listener;
-
+    int opt, sock, port;
+    int block_size, read_size;
+    char *dir, *addr;
     struct sockaddr_in server;
-
-    // Enlist SIGINT and SIGCHLD signal handlers
-    signal(SIGINT, int_handler);
-    signal(SIGCHLD, child_handler);
+    struct sockaddr *serverptr = (struct sockaddr *)&server;
+    //struct hostent *rem;
 
     /* Assert correct number of cmd arguments */
-    if (argc > 5) {
+    if (argc != 7) {
         usage(argv[0]);
     }
 
     /* Parse cmd arguments */
-    while ((opt = getopt(argc, argv, "ipd:")) != -1) {
+    while ((opt = getopt(argc, argv, "i:p:d:")) != -1) {
         switch (opt) {
         case 'i':
+            addr = optarg;
             server.sin_addr.s_addr = inet_addr(optarg);
             break;
         case 'p':
-            server.sin_port = htons( atoi(optarg) );
+            port = atoi(optarg);
             break;
         case 'd':
             dir = optarg;
@@ -262,19 +88,71 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    /* Make-a-TCP-socket */
+    fprintf(stderr, "Client parameters are:\n");
+    fprintf(stderr, "serverIP: %s\n",addr);
+    fprintf(stderr, "port: %d\n", port);
+    fprintf(stderr, "directory: %s\n", dir);
+
+    /* Make-a-socket */
     if ((sock = socket(AF_INET, SOCK_STREAM, 0) ) == -1) {
         perror("[remoteClient] Socket creation failed!");
         exit(EXIT_FAILURE);
     }
 
-	/* Connect to remote server */
-    if (connect_to_server(sock, &server) == -1) {
+    fprintf(stderr, "Connecting to %s on port %d\n", addr, port);
+
+    /* Find server a d d r e s s */
+    //if (( rem = gethostbyname(addr) ) == NULL) {
+    //    herror("gethostbyname");
+    //    exit(1);
+    //}
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons(port);
+    //memcpy (&server.sin_addr, rem->h_addr, rem->h_length) ;
+
+    /* Connect to remote server */
+    if (connect(sock, serverptr, sizeof(server))) {
         perror("[remoteClient] Socket connect() failure!");
         exit(EXIT_FAILURE);
     }
     else
 	    puts("[remoteClient] Connected\n");
+
+    /* (1) Recv "hello" handshake */
+    fprintf(stderr, "[remoteClient] Waiting server handshake...");
+
+    char handshake[6];
+
+    read_size = read(sock, handshake, 6);
+
+    if (read_size != 6) {
+        perror("[remoteClient] recv() handshake");
+    }
+
+    fprintf(stderr, "\tSUCCESS\n");
+
+    /* (2) Write "hello" handshake */
+    char *message = "hello";
+    write(sock, message, strlen(message));
+
+    fprintf(stderr, "[remoteClient] Sent handshake...\n");
+
+    /* (3) Read block size */
+    int helper;
+    read_size = read(sock, &helper, sizeof(helper));
+
+    if (read_size <= 0) {
+        perror("[remoteClient] read() block size");
+    }
+
+    block_size = ntohs(helper);
+
+    fprintf(stderr, "[remoteClient] Received block size = %d\n", block_size);
+
+    /* (4) Write directory to fetch */
+    write(sock, dir, block_size);
+
 
 /*
     // Assert path exists
@@ -316,9 +194,10 @@ int main(int argc, char *argv[]) {
         exit(0);
     }
 */
-    close(listen[WRITE]);
+    //close(listen[WRITE]);
     //dup2(listen[READ], 0);
 
+/*
     // Wait for new reads
     while(1) {
         //printf("hello\n");
@@ -392,6 +271,6 @@ int main(int argc, char *argv[]) {
 
         //close(listen[READ]);
     }
-
+*/
     return 0;
 }

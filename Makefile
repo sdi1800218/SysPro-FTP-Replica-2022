@@ -24,10 +24,16 @@ dataServer.o: dataServer.c
 		$(COMPILER) $(CFLAGS) dataServer.c
 
 dataServer: $(OBJS_SERV)
-		$(COMPILER) $(OBJS_SERV) -o $(EXEC) $(LDFLAGS)
+		$(COMPILER) $(OBJS_SERV) -o $(EXEC_SERV) $(LDFLAGS)
+
+remoteClient.o: remoteClient.c
+		$(COMPILER) $(CFLAGS) remoteClient.c
+
+remoteClient: $(OBJS_CLI)
+		$(COMPILER) $(OBJS_CLI) -o $(EXEC_CLI) $(LDFLAGS)
 
 clean:
-		rm -f $(OBJS_*) $(EXEC_*) *.gch worker*
+		rm -f $(OBJS_SERV) $(OBJS_CLI) $(EXEC_SERV) $(EXEC_CLI) *.gch worker*
 
 # TODO
 run: $(EXEC)
