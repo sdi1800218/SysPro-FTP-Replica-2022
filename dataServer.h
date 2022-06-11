@@ -1,5 +1,8 @@
 #include "pthreadpool/pthreadpool.h"
 
+#define MAXFILES 1024
+#define MAXFILENAME 4096
+
 /* Passed to child communicator */
 typedef struct pkg {
     int sock;
@@ -14,9 +17,15 @@ typedef struct pkg2 {
     char *filename;
 } pkg2;
 
-// Our 'as-function' Communication handling thread-child
+typedef struct meta {
+    char file_path[MAXFILENAME];
+    // TODO: File metadata
+} meta;
+
+/* Communication Thread func */
 void *child_communicator(void *);
-// Our 'as-function' Worker
+
+/* Worker Thread func */
 void *child_worker(void *);
 
 /* Function prototypes */

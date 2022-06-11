@@ -10,13 +10,8 @@
 
 #include "dataServer.h"
 
-#define MAXFILES 1024
-#define MAXFILENAME 1024
-
-pkg paketo;
-
 /* Recursively fetch the files of the given dir */
-void recurse_dir(char *dir_path) {
+void recurse_dir(char *dir_path, char *files[MAXFILES], int *count) {
 
 	struct dirent *myent;
 	DIR *dir = opendir(dir_path);
@@ -46,7 +41,7 @@ void recurse_dir(char *dir_path) {
 				//printf("%s\n", new_dir);
 
 				/* Recurse on child dir */
-				recurse_dir(new_dir);
+				recurse_dir(new_dir, files, count);
 			}
 			else {
 				//fprintf(stderr, "%s%s\n", dir_path, myent->d_name);
@@ -55,16 +50,12 @@ void recurse_dir(char *dir_path) {
 				strcpy(file_path, dir_path);
 				strcat(file_path, myent->d_name);
 
-				/* Add task in queue */
-				fprintf(stderr, "[Thread: %lu]: Adding file %s to the queue...\n",
-						pthread_self(), file_path);
+				/* Add file_path in files and raise count */
+				//files[*count] = file_path;
+				files[*count] = malloc(strlen(file_path) * sizeof(char *));
+				strcpy(files[*count], file_path);
 
-				pkg2 pasa;
-				pasa.sock = paketo.sock;
-				pasa.block_size = paketo.block_size;
-				pasa.filename = file_path;
-
-				pthreadpool_add_task(paketo.pool, child_worker, &pasa);
+				*count = *count + 1;
 			}
 		}
     }
@@ -78,30 +69,33 @@ void *child_communicator(void *p) {
 	fprintf(stderr, "\t [Thread %lu]\n", pthread_self());
 
 	/* Decompress our package */
-	paketo = *(pkg *)p;
+	pkg paketo = *(pkg *)p;
 	int new_sock = paketo.sock;
 	int block_sz = paketo.block_size;
-	int read_size;
+
+	/* Make some VLAs */
 	char *message, client_buffer[block_sz], directory[block_sz];
+	char *files[MAXFILES] = { NULL };
 
 	/* (1) Write "hello" handshake to client */
 	message = "hello";
 	write(new_sock, message, strlen(message));
 
 	/* (2) Recv "hello" handshake from client */
-	fprintf(stderr, "[dataServer] Waiting client handshake...\n");
+	fprintf(stderr, "[dataServer] Waiting client handshake...");
 
 	char handshake[6];
 
-	read_size = read(new_sock, handshake, 6);
+	read(new_sock, handshake, 6);
 
-	if (read_size != 6) {
-        perror("[dataServer] recv");
+	if (strncmp(handshake, "hello", 5) == 0) {
+        fprintf(stderr, "\tSUCCESS\n");
     }
-
-	if (strncmp(message, handshake, 6)) {
-    	fprintf(stderr, "\tSUCCESS\n");
-	}
+    else {
+        perror("[remoteClient] recv() handshake");
+        fprintf(stderr, "%s\n", handshake);
+        exit(EXIT_FAILURE);
+    }
 
 	/* (3) Write block size */
 	int congest = htons(block_sz);
@@ -116,20 +110,37 @@ void *child_communicator(void *p) {
 
 	fprintf(stderr, "[dataServer] I read %s\n", directory);
 
-	/* (5) List the directory contents recursively */
+	/* (5) Send back the file count */
 	fprintf(stderr, "[Thread %lu] Gonna scan dir %s\n", pthread_self(), directory);
 
-	//files = malloc(MAXFILES * sizeof(char *));
-	recurse_dir(directory);
-	//fprintf(stderr, "Count %d\n", filename_count);
+	int file_count = 0;
+	recurse_dir(directory, files, &file_count);
 
-	//while( (read_size = recv(new_sock, client_buffer, block_sz, 0)) > 0 ) {
-		/* Send the message back to client */
-		//write(new_sock, client_buffer, strlen(client_buffer));
-	//}
+	/* Debug print
+	fprintf(stderr, "Count %d\n", file_count);
+	for (int i = 0; i < file_count; ++i) {
+		fprintf(stderr, "File $%d is: %s\n", i, files[i]);
+	}
+	*/
 
-	//Free the socket pointer
-	close(new_sock);
+	/* TODO: Send count */
+	/* wait for ack */
+
+	/* (6) List the directory contents recursively;
+			for each file, schedule a task in the pool and send to the client */
+	for (int t = 0; t < file_count; ++t) {
+
+		pkg2 pasa;
+		pasa.sock = paketo.sock;
+		pasa.block_size = paketo.block_size;
+		pasa.filename = files[t];
+
+		fprintf(stderr, "[Thread: %lu]: Adding file %s to the queue...\n",
+							pthread_self(), files[t]);
+
+		pthreadpool_add_task(paketo.pool, child_worker, &pasa);
+
+	}
 
 	return 0;
 }

@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <pthread.h>    /* I am a thread duh */
 
+#include "dataServer.h"
 
 void cont_handler(int);
 void kill_handler(int);
@@ -22,6 +23,29 @@ void cont_handler(int sig) {
 }
 */
 
+/* Helper that waits for ACK message */
+int read_ack(int sock) {
+    char ack[4];
+    read(sock, &ack, sizeof(ack));
+
+    if (strncmp(ack, "ACK", 3) == 0) {
+        fprintf(stderr, "\tSUCCESS\n");
+    }
+    else {
+        perror("[remoteClient] recv() handshake");
+        fprintf(stderr, "%s\n", ack);
+        return -1;
+    }
+
+    return 0;
+}
+
+void write_ack(int sock) {
+    char *ack = "ACK";
+
+    write(sock, ack, strlen(ack) + 1);
+}
+
 /* SIGKILL Handler */
 void kill_handler(int sig) {
     printf("\t[Worker::Handler] Received a SIGKILL!\n");
@@ -33,10 +57,39 @@ void kill_handler(int sig) {
         Operates via read()ing a named pipe */
 void *child_worker(void *arg) {
 
-    fprintf(stderr, "\t [Thread %lu] I am a Worker Thread!!!\n", pthread_self());
+    int sock;
+    //fprintf(stderr, "[Thread: %lu]: I am a Worker Thread!!!\n", pthread_self());
+
+    pkg2 paketo = *(pkg2 *)arg;
+    fprintf(stderr, "[Thread: %lu]: Received task: <%s, %d>\n",
+                    pthread_self(), paketo.filename, paketo.sock);
+
+    /* Open the paketo */
+    sock = paketo.sock;
+
+    /* TODO: Lock the mutex here */
+
+    write_ack(sock);
+
+    /* (1) Send file path and file metadat (both on meta struct) */
+    meta metadata;
+    strncpy(metadata.file_path, paketo.filename, strlen(paketo.filename) + 1);
+
+    fprintf(stderr, "Sending file metadata\n");
+    write(sock, &metadata, sizeof(metadata));
+    read_ack(sock);
+
+    /* (2) Begin sending file block-by-block */
+
+    /* (3) Send END message */
+
+    //while( (read_size = recv(new_sock, client_ackfer, block_sz, 0)) > 0 ) {
+		/* Send the message back to client */
+		//write(new_sock, client_ackfer, strlen(client_ackfer));
+	//}
 
     // int fifo_fd;
-    // char filename[BUFSIZE+1];
+    // char filename[ackSIZE+1];
 
     // pid_t me = getpid(), pops = getppid();
     // printf("\t[Worker] I am Worker child %d and my pops is %d\n", me, pops);
@@ -70,7 +123,7 @@ void *child_worker(void *arg) {
     //     int count, bytes_read;
 
     //     // Read from named pipe
-    //     if ( (bytes_read = read(fifo_fd, filename, BUFSIZE)) < 0) {
+    //     if ( (bytes_read = read(fifo_fd, filename, ackSIZE)) < 0) {
     //         perror("\t[Worker] Problem in reading from FIFO") ;
     //         exit(5);
     //     }

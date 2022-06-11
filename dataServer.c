@@ -13,7 +13,6 @@
 #include <pthread.h>        /* for threads, with -lpthread */
 #include <ctype.h>          /* for isalnum */
 
-#include "queue_sedgewick/Queue.h"
 #include "pthreadpool/pthreadpool.h"
 #include "dataServer.h"
 
@@ -64,6 +63,10 @@ void sanitize(char *str) {
     for (src = dest = str; *src; src++)
         if (*src == '/' || isalnum(*src))
             *dest++ = *src;
+
+    /* Ensure '/' at the end of dir */
+    if(*(dest-1) != '/')
+        *dest++ = '/';
 
     *dest = '\0';
 }

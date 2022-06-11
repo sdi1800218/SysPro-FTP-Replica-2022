@@ -199,6 +199,16 @@ void* pthreadpool_worker_function(void *arg) {
         pool->front = (pool->front == pool->queue_sz) ? 0 : pool->front;
         pool->task_queue_sz--;
 
+        /* If queue empty, then signal */
+        if (pool->task_queue_sz == 0) {
+            pthread_cond_signal(&(pool->queue_empty));
+        }
+
+        /* If */
+        if ( pool->task_queue_sz == (pool->queue_sz - 1) ){
+            pthread_cond_broadcast(&(pool->queue_not_full));
+        }
+
         /* Critical ENDS */
         pthread_mutex_unlock(&(pool->queue_mutex));
 
