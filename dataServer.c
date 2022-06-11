@@ -76,11 +76,15 @@ int main(int argc, char *argv[]) {
     socklen_t clientlen = sizeof(client);
     struct sockaddr *serverptr = (struct sockaddr *)&server;
     struct sockaddr *clientptr = (struct sockaddr *)&client;
+    pthreadpool *PTP;
 
     /* Assert correct number of cmd arguments */
     if (argc != 9) {
         usage(argv[0]);
     }
+
+    /* Reap dead children asynchronously */
+    signal (SIGCHLD, sigchld_handler);
 
     /* Parse cmd arguments */
     while ((opt = getopt(argc, argv, ":p:s:q:b:")) != -1) {
@@ -103,9 +107,6 @@ int main(int argc, char *argv[]) {
             }
     }
 
-    /* Reap dead children asynchronously */
-    signal (SIGCHLD, sigchld_handler) ;
-
     /* Print Server Info */
     fprintf(stderr, "Server parameters are:\n");
     fprintf(stderr, "port:\t%d\n", port);
@@ -114,7 +115,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "block_size:\t%d\n", block_sz);
 
     /* Initialize Thread Pool of Worker Threads */
-    //pthreadpool_t *PTP = pthreadpool_create(thread_num, queue_sz);
+    PTP = pthreadpool_create(thread_num, queue_sz);
 
     /* Make-a-TCP-socket */
     if ((sock = socket(AF_INET, SOCK_STREAM, 0) ) == -1) {
@@ -160,6 +161,7 @@ int main(int argc, char *argv[]) {
         pkg p;
         p.sock = *temp_sock;
         p.block_size = block_sz;
+        p.pool = PTP;
 
         /* Make-a-thread */
 		if (pthread_create(&comms_thread, NULL, child_communicator, &p) < 0) {
@@ -169,6 +171,8 @@ int main(int argc, char *argv[]) {
 		// Now join the thread, so that we dont terminate before the thread
 		// pthread_join(comms_thread, NULL);
 	}
+
+    // TODO: Destroy Thread Pool
 
 /*
     close(listen[WRITE]);
