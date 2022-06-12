@@ -58,15 +58,27 @@ void perror_exit(char *message) {
 }
 
 /* Ensure the system doesn't die by the end of execution */
-void sanitize(char *str) {
+void ensure_slash(char *str) {
     char *src, *dest;
+
+    /* Traverse */
     for (src = dest = str; *src; src++)
-        if (*src == '/' || isalnum(*src))
+        if (*src == '/' || isalnum(*src) || *src == '.')
             *dest++ = *src;
 
     /* Ensure '/' at the end of dir */
     if(*(dest-1) != '/')
         *dest++ = '/';
+
+    *dest = '\0';
+}
+
+/* Ensure the system doesn't die by the end of execution */
+void sanitize(char *str) {
+    char *src, *dest;
+    for (src = dest = str; *src; src++)
+        if (*src == '/' || isalnum(*src) || *src == '.')
+            *dest++ = *src;
 
     *dest = '\0';
 }
@@ -148,7 +160,6 @@ int main(int argc, char *argv[]) {
 
 	//int c = sizeof(struct sockaddr_in);
 	while( (new_sock = accept(sock, clientptr, &clientlen)) ) {
-		int *temp_sock;
 
         if ( new_sock < 0 ) {
             perror_exit("[dataServer] accept()");
@@ -157,7 +168,7 @@ int main(int argc, char *argv[]) {
 
         /* It works! */
 		pthread_t comms_thread;
-		temp_sock = malloc(1);
+		int *temp_sock = malloc(sizeof(int *));
 		*temp_sock = new_sock;
 
         /* Mak-a-pkg */

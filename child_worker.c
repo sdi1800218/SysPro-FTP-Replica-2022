@@ -23,29 +23,6 @@ void cont_handler(int sig) {
 }
 */
 
-/* Helper that waits for ACK message */
-int read_ack(int sock) {
-    char ack[4];
-    read(sock, &ack, sizeof(ack));
-
-    if (strncmp(ack, "ACK", 3) == 0) {
-        fprintf(stderr, "\tSUCCESS\n");
-    }
-    else {
-        perror("[remoteClient] recv() handshake");
-        fprintf(stderr, "%s\n", ack);
-        return -1;
-    }
-
-    return 0;
-}
-
-void write_ack(int sock) {
-    char *ack = "ACK";
-
-    write(sock, ack, strlen(ack) + 1);
-}
-
 /* SIGKILL Handler */
 void kill_handler(int sig) {
     printf("\t[Worker::Handler] Received a SIGKILL!\n");
@@ -53,8 +30,7 @@ void kill_handler(int sig) {
     exit(EXIT_SUCCESS);
 }
 
-/* Simple worker, uses low level IO to extract urls from files.
-        Operates via read()ing a named pipe */
+/* Worker Thread: TODO */
 void *child_worker(void *arg) {
 
     int sock;
@@ -66,22 +42,27 @@ void *child_worker(void *arg) {
 
     /* Open the paketo */
     sock = paketo.sock;
+    //block_size = paketo.sock;
 
-    /* TODO: Lock the mutex here */
+    /* (1) Lock the socket mutex here */
+    pthread_mutex_lock(paketo.socket_mutex);
 
-    write_ack(sock);
+    /* (2) Send "FILE" handshake */
 
-    /* (1) Send file path and file metadat (both on meta struct) */
+    /* (3) Send file path and file metadata (both on meta struct) */
     meta metadata;
     strncpy(metadata.file_path, paketo.filename, strlen(paketo.filename) + 1);
 
-    fprintf(stderr, "Sending file metadata\n");
+    fprintf(stderr, "[Thread: %lu]: Sending file metadata\n", pthread_self());
     write(sock, &metadata, sizeof(metadata));
-    read_ack(sock);
 
-    /* (2) Begin sending file block-by-block */
+    /* (4) Begin sending file block-by-block */
 
-    /* (3) Send END message */
+    /* (5) Send "ELIF" end of file */
+
+    /* (6) Unlock the socket mutex now */
+    pthread_mutex_unlock(paketo.socket_mutex);
+    //fprintf(stderr, "[Thread: %lu]: FINISHED!!!\n", pthread_self());
 
     //while( (read_size = recv(new_sock, client_ackfer, block_sz, 0)) > 0 ) {
 		/* Send the message back to client */

@@ -9,11 +9,6 @@ OBJS_CLI = remoteClient.o
 EXEC_SERV = dataServer
 EXEC_CLI = remoteClient
 
-# Q = queue_sedgewick
-
-# Queue.o:
-# 		$(COMPILER) $(CFLAGS) $(Q)/Queue.c $(Q)/Queue.h
-
 PTP = pthreadpool
 
 pthreadpool.o: $(PTP)/pthreadpool.c

@@ -133,6 +133,8 @@ int pthreadpool_add_task(pthreadpool *pool, void* (*function)(void *), void *arg
     assert(function != NULL);
     assert(arg != NULL);
 
+    //fprintf(stderr, "[pthreadpool] task\n");
+
     /* Acquire mutex */
     pthread_mutex_lock(&pool->queue_mutex);
 
@@ -175,6 +177,8 @@ void* pthreadpool_worker_function(void *arg) {
     pthreadpool *pool = (pthreadpool *)arg;
     task t;
 
+    //fprintf(stderr, "[pthreadpool] I am thread %lu\n", pthread_self());
+
     while( 1 ) {
         pthread_mutex_lock(&(pool->queue_mutex));
         /* Critical BEGINS */
@@ -201,11 +205,12 @@ void* pthreadpool_worker_function(void *arg) {
 
         /* If queue empty, then signal */
         if (pool->task_queue_sz == 0) {
+            pool->front = pool->rear = 0;
             pthread_cond_signal(&(pool->queue_empty));
         }
 
         /* If */
-        if ( pool->task_queue_sz == (pool->queue_sz - 1) ){
+        if ( pool->rear != pool->queue_sz ){
             pthread_cond_broadcast(&(pool->queue_not_full));
         }
 

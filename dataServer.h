@@ -14,7 +14,8 @@ typedef struct pkg {
 typedef struct pkg2 {
     int sock;
     int block_size;
-    char *filename;
+    char filename[MAXFILENAME];
+    pthread_mutex_t *socket_mutex;
 } pkg2;
 
 typedef struct meta {
@@ -33,6 +34,9 @@ void usage(char *);
 void perror_exit(char *);
 void sigchld_handler(int sig);
 void sanitize (char* str);
+void ensure_slash(char* str);
+void wACK(int sock);
+int rACK(int sock);
 
 /* Child Comm prototypes */
-//void recurse_dir(char *);
+void recurse_dir(char *, char *[MAXFILES], int *);
