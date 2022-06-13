@@ -7,8 +7,10 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
-#include <pthread.h>    /* I am a thread duh */
+#include <sys/stat.h>		/* for stat */
+#include <sys/socket.h> 	/* for recv */
+#include <arpa/inet.h>      /* for hton */
+#include <pthread.h>        /* I am a thread duh */
 
 #include "dataServer.h"
 
@@ -33,7 +35,8 @@ void kill_handler(int sig) {
 /* Worker Thread: TODO */
 void *child_worker(void *arg) {
 
-    int sock;
+    int sock, congest, block_size;
+    char handshake[5], *message, file_path[MAXFILENAME];
     //fprintf(stderr, "[Thread: %lu]: I am a Worker Thread!!!\n", pthread_self());
 
     pkg2 paketo = *(pkg2 *)arg;
@@ -42,26 +45,78 @@ void *child_worker(void *arg) {
 
     /* Open the paketo */
     sock = paketo.sock;
-    //block_size = paketo.sock;
+    block_size = paketo.block_size;
+    strncpy(file_path, paketo.filename, strlen(paketo.filename) + 1);
 
     /* (1) Lock the socket mutex here */
     pthread_mutex_lock(paketo.socket_mutex);
 
     /* (2) Send "FILE" handshake */
+    message = "FILE";
+    send(sock, message, strlen(message) + 1, 0);
+
+    /* (3) Receive confirm "ELIF" */
+    recv(sock, handshake, 5, 0);
+
+	if (strncmp(handshake, "ELIF", 5) != 0) {
+        perror("[child_communicator::phase_one] read() handshake");
+        fprintf(stderr, "%s\n", handshake);
+	}
 
     /* (3) Send file path and file metadata (both on meta struct) */
-    meta metadata;
-    strncpy(metadata.file_path, paketo.filename, strlen(paketo.filename) + 1);
+    send(sock, file_path, strlen(file_path) + 1, 0);
 
-    fprintf(stderr, "[Thread: %lu]: Sending file metadata\n", pthread_self());
-    write(sock, &metadata, sizeof(metadata));
+    /* rACK */
+    if (rACK(sock) != 0) {
+        perror("[remoteClient] rACK() directory");
+    }
+
+    struct stat sb;
+    if (stat(paketo.filename, &sb) == -1) {
+        perror_exit("[child_worker] stat()");
+    }
+
+    congest = htons(sb.st_size);
+	send(sock, &congest, sizeof(congest), 0);
+
+    /* rACK */
+    if (rACK(sock) != 0) {
+        perror("[remoteClient] rACK() directory");
+    }
+
+    //fprintf(stderr, "[Thread: %lu]: Sending file metadata\n", pthread_self());
 
     /* (4) Begin sending file block-by-block */
+    FILE *fp = fopen(file_path, "r");
+
+    int packets;
+    /* Check whether packets fit perfectly on block size */
+    if ((sb.st_size % (block_size - 1)) == 0 ) {
+        packets = sb.st_size / (block_size - 1) ;
+    }
+    else {
+        packets = (sb.st_size / (block_size - 1)) + 1;
+    }
+
+    for (int packet = 0; packet < packets; ++packet) {
+
+        char block[block_size];
+
+        fgets(block, block_size, fp);
+
+        send(sock, block, block_size, 0);
+
+    }
+
+    fclose(fp);
 
     /* (5) Send "ELIF" end of file */
+    message = "ELIF";
+    send(sock, message, strlen(message) + 1, 0);
 
     /* (6) Unlock the socket mutex now */
     pthread_mutex_unlock(paketo.socket_mutex);
+
     //fprintf(stderr, "[Thread: %lu]: FINISHED!!!\n", pthread_self());
 
     //while( (read_size = recv(new_sock, client_ackfer, block_sz, 0)) > 0 ) {

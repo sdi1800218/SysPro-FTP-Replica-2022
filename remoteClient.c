@@ -2,16 +2,20 @@
 */
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+#include <unistd.h>         /* for access */
+#include <dirent.h>         /* for *dir functions */
 #include <errno.h>
 #include <string.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/socket.h>     /* for socket handling */
 #include <netinet/in.h>     /* for sockaddr_in */
 #include <arpa/inet.h>      /* for hton */
+#include <ctype.h>          /* for isalnum */
+
 
 #include "remoteClient.h"
 
@@ -25,10 +29,10 @@ void usage(char *exec_name) {
 /* Helper that waits for ACK message */
 int rACK(int sock) {
     char ack[4];
-    read(sock, &ack, sizeof(ack));
+    recv(sock, &ack, sizeof(ack), 0);
 
     if (strncmp(ack, "ACK", 3) != 0) {
-        perror("[remoteClient] read() ACK");
+        perror("[remoteClient] recv() ACK");
         fprintf(stderr, "%s\n", ack);
         return -1;
     }
@@ -43,23 +47,77 @@ void wACK(int sock) {
     send(sock, ack, strlen(ack) + 1, 0);
 }
 
+/* Ensure the system doesn't die by the end of execution */
+void sanitize(char *str) {
+    char *src, *dest;
+    for (src = dest = str; *src; src++)
+        if (*src == '/' || isalnum(*src) || *src == '.')
+            *dest++ = *src;
+
+    *dest = '\0';
+}
+
+/* Helper that makes a dirs on a given path on cwd */
+void make_dir_path(char file_path[MAXFILENAME]) {
+
+    int depth_count = 0, i;
+    char *dir_token = "/";
+    char *helper;
+    char curr_full[MAXFILENAME] = { "" };
+
+    /* Parse once to get the count */
+    for (char *c = file_path; *c != '\0'; ++c) {
+        if (*c == '/')
+            depth_count++;
+        //fprintf(stderr, "%d\n", depth_count);
+    }
+
+    /* Tokenize and as you go create dirs */
+    for (helper = file_path, i = 0; i < depth_count; ++i, helper = NULL) {
+        char *curr;
+
+        /* Extract current token to curr */
+        curr = strtok(helper, dir_token);
+
+        if (curr == NULL)
+            break;
+
+        /* Recreate the path */
+        strcat(curr_full, curr);
+        strcat(curr_full, "/");
+
+        DIR* dir = opendir(curr_full);
+
+        if (dir) {
+            closedir(dir);
+        }
+        else if (ENOENT == errno) {
+            // if it doesn't exist, create it
+            mkdir(curr_full, S_IRWXU);
+        }
+
+        //fprintf(stderr, "Making dir: %s\n", curr_full);
+
+    }
+}
+
 /* Facilitates Handshake phase of the protocol a la B.A.T.M.A.N */
 int proto_cli_phase_one(int sock) {
 
-    /* (1) Read "hello" handshake */
+    /* (1) Recv "hello" handshake */
     //fprintf(stderr, "[remoteClient] Waiting server handshake...");
 
     char handshake[6];
 
-    read(sock, handshake, 6);
+    recv(sock, handshake, 6, 0);
 
     if (strncmp(handshake, "hello", 5) != 0) {
-        perror("[remoteClient] read() handshake");
+        perror("[remoteClient] recv() handshake");
         fprintf(stderr, "%s\n", handshake);
         return -1;
     }
 
-    /* (2) Write "hello" handshake */
+    /* (2) Send "hello" handshake */
     char *message = "hello";
     send(sock, message, strlen(message), 0);
 
@@ -69,16 +127,16 @@ int proto_cli_phase_one(int sock) {
 }
 
 /* Facilitates noisy session phase 2 exchanging data with the server
-    Must rACK after write and wACK after read */
+    Must rACK after send and wACK after recv */
 int proto_cli_phase_two(int sock, int *blk_sz, int *file_cnt, char *dir) {
 
     int block_size, read_size, congest, file_count;
 
-    /* (1) Read block size */
-    read_size = read(sock, &congest, sizeof(congest));
+    /* (1) Recv block size */
+    read_size = recv(sock, &congest, sizeof(congest), 0);
 
     if (read_size <= 0) {
-        perror("[remoteClient] read() block size");
+        perror("[remoteClient] recv() block size");
         return -1;
     }
 
@@ -91,7 +149,7 @@ int proto_cli_phase_two(int sock, int *blk_sz, int *file_cnt, char *dir) {
     *blk_sz = block_size;
 
     /* (2) Write directory to fetch */
-    send(sock, dir, block_size, 0);
+    send(sock, dir, strlen(dir) + 1, 0);
 
     /* rACK */
     if (rACK(sock) != 0) {
@@ -100,10 +158,10 @@ int proto_cli_phase_two(int sock, int *blk_sz, int *file_cnt, char *dir) {
     }
 
     /* (3) Read file_count */
-    read_size = read(sock, &congest, sizeof(congest));
+    read_size = recv(sock, &congest, sizeof(congest), 0);
 
     if (read_size <= 0) {
-        perror("[remoteClient] read() file count");
+        perror("[remoteClient] recv() file count");
         return -1;
     }
 
@@ -118,27 +176,134 @@ int proto_cli_phase_two(int sock, int *blk_sz, int *file_cnt, char *dir) {
     return 0;
 }
 
+/* TODO */
 int proto_cli_phase_three(int sock, int files, int block_size) {
+
+    int congest, read_size, file_size;
+
+    /* FILES */
     for (int file = 0; file < files; ++file) {
 
         /* (1) Read "FILE" handshake */
+        char handshake[5], *message;
 
-        /* (2) Receive metadata
+        recv(sock, handshake, 5, 0);
+
+        if (strncmp(handshake, "FILE", 5) != 0) {
+            perror("[remoteClient::phase_three] recv() \"FILE\" handshake");
+            fprintf(stderr, "%s\n", handshake);
+            return -1;
+        }
+
+        /* (2) Send confirmation "ELIF" */
+        message = "ELIF";
+        send(sock, message, strlen(message) + 1, 0);
+
+        /* (3) Receive metadata
                 (a) file path
                 (b) file metadata
         */
-        meta metadata;
-        read(sock, &metadata, sizeof(metadata));
+        char buffer[block_size], file_path[block_size];
 
-        fprintf(stderr, "Read metadata with values: %s\n", metadata.file_path);
+        /* file path */
+	    read_size = recv(sock, buffer, MAXFILENAME, 0);
+        //fprintf(stderr, "%d\n", read_size);
 
-        /* (3) Make path for the file */
+        sanitize(buffer);
 
-        /* (4) Receive file, block-by-block */
-        /* TODO */
+        // Transfer
+        sprintf(file_path, "%s", buffer);
 
-        /* (5) Read "ELIF" end of file */
+        /* wACK */
+    	wACK(sock);
 
+        /* file count */
+        read_size = recv(sock, &congest, sizeof(congest), 0);
+
+        if (read_size <= 0) {
+            perror("[remoteClient] recv() file count");
+            return -1;
+        }
+
+        file_size = ntohs(congest);
+
+        /* wACK */
+    	wACK(sock);
+
+        fprintf(stderr, "Received: %s\n", file_path);
+
+        /* (4) Make path for the file */
+        char path[MAXFILENAME];
+        strncpy(path, file_path, strlen(file_path) + 1);
+        make_dir_path(path);
+
+        /* (5) Create file */
+        FILE *fp;
+        if (access(file_path, F_OK) == 0) {
+
+            fprintf(stderr, "trying to remove file %s\n", file_path);
+
+            // if it exists: remove and create
+            if (remove(file_path) == -1) {
+                perror("[remoteClient]: remove() file path");
+                return -1;
+            }
+
+            // with "w" it creates
+            fp = fopen(file_path, "w");
+
+            if (fp == NULL) {
+                perror("[remoteClient]: failed to create file");
+                return -1;
+            }
+        }
+        else {
+            // if it doesn't: just create
+            // with "w" it creates
+            fp = fopen(file_path, "w");
+
+            if (fp == NULL) {
+                perror("[remoteClient]: failed to create file");
+                return -1;
+            }
+        }
+
+        /* (6) Receive file, block-by-block */
+
+        int packets;
+        /* Check whether packets fit perfectly on block size */
+        if ((file_size % (block_size - 1)) == 0) {
+            packets = file_size / (block_size - 1);
+        }
+        else {
+            packets = (file_size / (block_size - 1)) + 1;
+        }
+
+        /* Recv packets and store each in the file */
+        for (int packet = 0; packet < packets; ++packet) {
+
+            char data[block_size];
+
+            recv(sock, buffer, block_size, 0);
+
+            snprintf(data, block_size, "%s", buffer);
+
+            fprintf(stderr, "Received packet %d, containing: %s\n", packet, data);
+
+            fputs(data, fp);
+
+        }
+
+        fclose(fp);
+
+        /* (7) Read "ELIF" end of file */
+        recv(sock, handshake, 5, 0);
+
+        if (strncmp(handshake, "ELIF", 5) != 0) {
+            perror("[remoteClient::phase_three] recv() \"ELIF\" handshake");
+            fprintf(stderr, "%s\n", handshake);
+            return -1;
+        }
     }
 
     close(sock);
@@ -214,7 +379,7 @@ int main(int argc, char *argv[]) {
     /* ~~~~~~~~~~~~~~~~~~ BEGIN PROTOCOL ~~~~~~~~~~~~~~~~~~ */
 
     /* ~~~~~~~~~ PHASE 1: HELLO HANDSHAKE ~~~~~~~~~ */
-    fprintf(stderr, "[PHASE 1]:\t");
+    fprintf(stderr, "[PHASE 1]: ");
 
     if (proto_cli_phase_one(sock) == -1) {
         perror("[remoteClient] Protocol Phase 1 failure!");
@@ -226,26 +391,27 @@ int main(int argc, char *argv[]) {
     /* ~~~~~~~~~ PHASE 1 END ~~~~~~~~~*/
 
     /* ~~~~~~~~~ PHASE 2: SESSION DATA ~~~~~~~~~ */
-    fprintf(stderr, "[PHASE 2]:\n");
+    fprintf(stderr, "[PHASE 2]: START\n");
 
     if (proto_cli_phase_two(sock, &block_size, &file_count, dir) == -1) {
         perror("[remoteClient] Protocol Phase 2 failure!");
         exit(EXIT_FAILURE);
     }
     else {
-		fprintf(stderr, "SUCCESS\n");
+		fprintf(stderr, "[PHASE 2]: SUCCESS\n");
 	}
     /* ~~~~~~~~~ PHASE 2 END ~~~~~~~~~ */
 
     /* ~~~~~~~~~ PHASE 3: FILES ~~~~~~~~~ */
-    fprintf(stderr, "[PHASE 3]:\n");
+    fprintf(stderr, "[PHASE 3]: START\n");
 
     if (proto_cli_phase_three(sock, file_count, block_size) == -1) {
         perror("[remoteClient] Protocol Phase 3 failure!");
+        close(sock);
         exit(EXIT_FAILURE);
     }
     else {
-		fprintf(stderr, "SUCCESS\n");
+		fprintf(stderr, "[PHASE 3]: SUCCESS\n");
 	}
     /* ~~~~~~~~~ PHASE 3 END ~~~~~~~~~ */
 

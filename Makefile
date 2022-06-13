@@ -30,7 +30,8 @@ remoteClient.o: remoteClient.c
 		$(COMPILER) $(CFLAGS) remoteClient.c remoteClient.h
 
 remoteClient: $(OBJS_CLI)
-		$(COMPILER) $(OBJS_CLI) -o $(EXEC_CLI) $(LDFLAGS)
+		mkdir -p ./client
+		$(COMPILER) $(OBJS_CLI) -o client/$(EXEC_CLI) $(LDFLAGS)
 
 clean:
 		rm -f $(OBJS_SERV) $(OBJS_CLI) $(EXEC_SERV) $(EXEC_CLI) *.gch

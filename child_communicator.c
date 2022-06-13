@@ -6,7 +6,7 @@
 #include <sys/socket.h> 	/* for recv */
 #include <arpa/inet.h>      /* for hton */
 #include <pthread.h> 		/* por dios */
-#include <dirent.h> 		/* for TODO */
+#include <dirent.h> 		/* for *dir */
 
 #include "dataServer.h"
 
@@ -27,7 +27,7 @@ int rACK(int sock) {
 void wACK(int sock) {
     char *ack = "ACK";
 
-    write(sock, ack, strlen(ack) + 1);
+    send(sock, ack, strlen(ack) + 1, 0);
 }
 
 /* Recursively fetch the files of the given dir */
@@ -91,7 +91,7 @@ int proto_serv_phase_one(int sock) {
 
 	/* (1) Write "hello" handshake to client */
 	char *message = "hello";
-	write(sock, message, strlen(message));
+	send(sock, message, strlen(message), 0);
 
 	/* (2) Recv "hello" handshake from client */
 	//fprintf(stderr, "[child_communicator::phase_one] Waiting client handshake...");
@@ -119,7 +119,7 @@ int proto_serv_phase_two(int sock, int block_sz,
 
 	/* (1) Write block size */
 	congest = htons(block_sz);
-	write(sock, &congest, sizeof(congest));
+	send(sock, &congest, sizeof(congest), 0);
 
 	/* rACK */
 	if (rACK(sock) != 0) {
@@ -127,20 +127,22 @@ int proto_serv_phase_two(int sock, int block_sz,
         return -1;
     }
 
-	/* (4) Recv requested directory */
-	read(sock, client_buffer, block_sz);
+	/* (2) Recv requested directory */
+	recv(sock, client_buffer, MAXFILENAME, 0);
 
 	/* wACK */
 	wACK(sock);
 
+	/* Post process */
 	sanitize(client_buffer);
 	ensure_slash(client_buffer);
 
-	snprintf(directory, block_sz, "%s", client_buffer);
+	/* Transfer for safety */
+	sprintf(directory, "%s", client_buffer);
 
 	//fprintf(stderr, "[dataServer] I read %s\n", directory);
 
-	/* (5) Send back the file count */
+	/* (3) Send back the file count */
 	fprintf(stderr, "[Thread: %lu]: Gonna scan dir %s\n", pthread_self(), directory);
 
 	int file_count = 0;
@@ -155,14 +157,16 @@ int proto_serv_phase_two(int sock, int block_sz,
 	}
 	*/
 
+	/* pack n go */
 	congest = htons(file_count);
-	write(sock, &congest, sizeof(congest));
+	send(sock, &congest, sizeof(congest), 0);
 
 	/* rACK */
 	if (rACK(sock) != 0) {
         perror("[child_communicator::phase_two] rACK() file count");
         return -1;
     }
+
 	return 0;
 }
 
@@ -178,14 +182,23 @@ void *child_communicator(void *p) {
 	int block_sz = paketo.block_size;
 	int file_count;
 
+	/* Mutex for the ages */
+	pthread_mutex_t socket_mutex;
+	if (pthread_mutex_init(&socket_mutex, NULL) == -1) {
+        perror("[child_comms] pthread_mutex_init() socket mutex");
+        exit(EXIT_FAILURE);
+    }
+
 	/* Make some VLAs */
 	char *files[MAXFILES] = { NULL };
 
 	/* ~~~~~~~~~~~~~~~~~~ BEGIN PROTOCOL ~~~~~~~~~~~~~~~~~~ */
 
     /* ~~~~~~~~~ PHASE 1: HELLO HANDSHAKE ~~~~~~~~~ */
-	fprintf(stderr, "[Thread: %lu]: PHASE 1:\t", pthread_self());
+
+	fprintf(stderr, "[Thread: %lu]: PHASE 1: ", pthread_self());
     if (proto_serv_phase_one(new_sock) == -1) {
+		close(new_sock);
         perror_exit("[child_communicator] Protocol Phase 1 failure!");
     }
 	else {
@@ -194,25 +207,18 @@ void *child_communicator(void *p) {
     /* ~~~~~~~~~ PHASE 1 END ~~~~~~~~~*/
 
 	/* ~~~~~~~~~ PHASE 2: SESSION DATA ~~~~~~~~~ */
-	fprintf(stderr, "[Thread: %lu]: PHASE 2:\n", pthread_self());
+	fprintf(stderr, "[Thread: %lu]: PHASE 2: START\n", pthread_self());
     if (proto_serv_phase_two(new_sock, block_sz, &file_count, files) == -1) {
-        perror_exit("[remoteClient] Protocol Phase 2 failure!");
+        close(new_sock);
+		perror_exit("[remoteClient] Protocol Phase 2 failure!");
     }
 	else {
-		fprintf(stderr, "SUCCESS\n");
+		fprintf(stderr, "[Thread: %lu]: PHASE 2: SUCCESS\n", pthread_self());
 	}
     /* ~~~~~~~~~ PHASE 2 END ~~~~~~~~~ */
 
     /* ~~~~~~~~~ PHASE 3: FILES ~~~~~~~~~ */
 	//fprintf(stderr, "[PHASE 3]:\n");
-
-	/* Mutex for the ages */
-	pthread_mutex_t socket_mutex;
-	if (pthread_mutex_init(&socket_mutex, NULL) == -1) {
-        perror("[child_comms] pthread_mutex_init() socket mutex");
-        exit(EXIT_FAILURE);
-    }
-
 
 	/* (1) For each file, schedule a task in the pool and pass the package */
 	pkg2 pases[file_count];

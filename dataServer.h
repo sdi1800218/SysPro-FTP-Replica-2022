@@ -18,11 +18,6 @@ typedef struct pkg2 {
     pthread_mutex_t *socket_mutex;
 } pkg2;
 
-typedef struct meta {
-    char file_path[MAXFILENAME];
-    // TODO: File metadata
-} meta;
-
 /* Communication Thread func */
 void *child_communicator(void *);
 
