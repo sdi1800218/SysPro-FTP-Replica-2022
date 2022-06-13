@@ -30,38 +30,7 @@ void usage(char *exec_name) {
     exit(EXIT_FAILURE);
 }
 
-/* Helper that waits for ACK message */
-int rACK(int sock) {
-    char ack[4];
-    recv(sock, &ack, sizeof(ack), 0);
-
-    if (strncmp(ack, "ACK", 3) != 0) {
-        perror("[remoteClient] recv() ACK");
-        fprintf(stderr, "%s\n", ack);
-        return -1;
-    }
-
-    return 0;
-}
-
-/* Helper that sends ACK messages */
-void wACK(int sock) {
-    char *ack = "ACK";
-
-    send(sock, ack, strlen(ack) + 1, 0);
-}
-
-/* Ensure the system doesn't die by the end of execution */
-void sanitize(char *str) {
-    char *src, *dest;
-    for (src = dest = str; *src; src++)
-        if (*src == '/' || isalnum(*src) || *src == '.')
-            *dest++ = *src;
-
-    *dest = '\0';
-}
-
-/* Helper that makes a dirs on a given path on cwd */
+/* Helper that makes the dirs on a given path on cwd */
 void make_dir_path(char file_path[MAXFILENAME]) {
 
     int depth_count = 0, i;

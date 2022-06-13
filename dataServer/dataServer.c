@@ -40,38 +40,6 @@ void sigint_handler(int sig) {
     return;
 }
 
-/* helper shorthand */
-void perror_exit(char *message) {
-    perror(message);
-    exit(EXIT_FAILURE);
-}
-
-/* Ensure the system doesn't die by the end of execution */
-void ensure_slash(char *str) {
-    char *src, *dest;
-
-    /* Traverse */
-    for (src = dest = str; *src; src++)
-        if (*src == '/' || isalnum(*src) || *src == '.')
-            *dest++ = *src;
-
-    /* Ensure '/' at the end of dir */
-    if(*(dest-1) != '/')
-        *dest++ = '/';
-
-    *dest = '\0';
-}
-
-/* Ensure the system doesn't die by the end of execution */
-void sanitize(char *str) {
-    char *src, *dest;
-    for (src = dest = str; *src; src++)
-        if (*src == '/' || isalnum(*src) || *src == '.')
-            *dest++ = *src;
-
-    *dest = '\0';
-}
-
 /* dataServer: Look at line 1  */
 int main(int argc, char *argv[]) {
 

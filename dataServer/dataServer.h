@@ -1,7 +1,5 @@
 #include "pthreadpool/pthreadpool.h"
-
-#define MAXFILES 1024
-#define MAXFILENAME 4096
+#include "../common/common.h"
 
 /* Passed to child communicator */
 typedef struct pkg {
@@ -30,11 +28,6 @@ void sigint_handler(int sig);
 
 /* Function prototypes */
 void usage(char *);
-void perror_exit(char *);
-void sanitize (char* str);
-void ensure_slash(char* str);
-void wACK(int sock);
-int rACK(int sock);
 
 /* Child Comm prototypes */
 void recurse_dir(char *, char *[MAXFILES], int *);

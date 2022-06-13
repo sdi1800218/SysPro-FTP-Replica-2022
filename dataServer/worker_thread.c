@@ -49,6 +49,8 @@ void *worker_thread(void *arg) {
 	if (strncmp(handshake, "ELIF", 5) != 0) {
         perror("[comms_thread::phase_one] recv() handshake");
         fprintf(stderr, "%s\n", handshake);
+        pthread_mutex_unlock(paketo.socket_mutex);
+        pthread_exit(0);
 	}
 
     /* (3) Send file path and file metadata (both on meta struct) */
@@ -57,11 +59,15 @@ void *worker_thread(void *arg) {
     /* rACK */
     if (rACK(sock) != 0) {
         perror("[remoteClient] rACK() directory");
+        pthread_mutex_unlock(paketo.socket_mutex);
+        pthread_exit(0);
     }
 
     struct stat sb;
     if (stat(paketo.filename, &sb) == -1) {
         perror_exit("[worker_thread] stat()");
+        pthread_mutex_unlock(paketo.socket_mutex);
+        pthread_exit(0);
     }
 
     congest = htons(sb.st_size);
@@ -70,6 +76,8 @@ void *worker_thread(void *arg) {
     /* rACK */
     if (rACK(sock) != 0) {
         perror("[remoteClient] rACK() directory");
+        pthread_mutex_unlock(paketo.socket_mutex);
+        pthread_exit(0);
     }
 
     //fprintf(stderr, "[Thread: %lu]: Sending file metadata\n", pthread_self());

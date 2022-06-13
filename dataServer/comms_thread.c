@@ -11,26 +11,6 @@
 
 #include "dataServer.h"
 
-/* Helper that waits for ACK message */
-int rACK(int sock) {
-    char ack[4];
-    recv(sock, &ack, sizeof(ack), 0);
-
-    if (strncmp(ack, "ACK", 3) != 0) {
-        perror("[comms_thread] recv() ACK");
-        fprintf(stderr, "%s\n", ack);
-        return -1;
-    }
-
-    return 0;
-}
-
-void wACK(int sock) {
-    char *ack = "ACK";
-
-    send(sock, ack, strlen(ack) + 1, 0);
-}
-
 /* Recursively fetch the files of the given dir */
 void recurse_dir(char *dir_path, char *files[MAXFILES], int *count) {
 

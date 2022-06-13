@@ -4,42 +4,47 @@ CFLAGS 	 = -Wall -Werror -g -c
 LDFLAGS  = -lpthread # needed to spawn children as separate processes
 
 # Objects and executables
-OBJS_SERV = dataServer.o worker_thread.o comms_thread.o pthreadpool.o
-OBJS_CLI = remoteClient.o
-EXEC_SERV = dataServer
-EXEC_CLI = remoteClient
+SERV = dataServer/
+CLI = client/
+OBJS_SERV = $(SERV)dataServer.o $(SERV)worker_thread.o $(SERV)comms_thread.o pthreadpool.o common.o
+OBJS_CLI = $(CLI)remoteClient.o common.o
+EXEC_SERV = $(SERV)dataServer
+EXEC_CLI = $(CLI)remoteClient
 
-PTP = pthreadpool
+PTP = $(SERV)pthreadpool
+
+common.o: common/common.c
+		$(COMPILER) $(CFLAGS) common/common.c common/common.h
 
 pthreadpool.o: $(PTP)/pthreadpool.c
 		$(COMPILER) $(CFLAGS) $(PTP)/pthreadpool.c $(PTP)/pthreadpool.h
 
-worker_thread.o: worker_thread.c
-		$(COMPILER) $(CFLAGS) worker_thread.c
+worker_thread.o: $(SERV)worker_thread.c
+		$(COMPILER) $(CFLAGS) $(SERV)worker_thread.c
 
-comms_thread.o: comms_thread.c
-		$(COMPILER) $(CFLAGS) comms_thread.c
+comms_thread.o: $(SERV)comms_thread.c
+		$(COMPILER) $(CFLAGS) $(SERV)comms_thread.c
 
-dataServer.o: dataServer.c
-		$(COMPILER) $(CFLAGS) dataServer.c dataServer.h
+dataServer.o: $(SERV)dataServer.c
+		$(COMPILER) $(CFLAGS) $(SERV)dataServer.c $(SERV)dataServer.h
 
 dataServer: $(OBJS_SERV)
 		$(COMPILER) $(OBJS_SERV) -o $(EXEC_SERV) $(LDFLAGS)
 
-remoteClient.o: remoteClient.c
-		$(COMPILER) $(CFLAGS) remoteClient.c remoteClient.h
+remoteClient.o: $(CLI)remoteClient.c
+		$(COMPILER) $(CFLAGS) $(CLI)remoteClient.c $(CLI)remoteClient.h
 
 remoteClient: $(OBJS_CLI)
-		mkdir -p ./client
-		$(COMPILER) $(OBJS_CLI) -o client/$(EXEC_CLI) $(LDFLAGS)
+		$(COMPILER) $(OBJS_CLI) -o $(EXEC_CLI) $(LDFLAGS)
 
 clean:
-		rm -f $(OBJS_SERV) $(OBJS_CLI) $(EXEC_SERV) $(EXEC_CLI) *.gch
+		rm -f $(OBJS_SERV) $(OBJS_CLI) $(EXEC_SERV) $(EXEC_CLI) */*.gch
+		rm -f dataServer.o remoteClient.o
+		# rm -r $(CLI)target
 
-run: $(EXEC_SERV) $(EXEC_CLI)
-		./$(EXEC_SERV) -p 2022 -s 2 -q 2 -b 512 &
-		sleep 2; ./$(EXEC_CLI) -i 127.0.0.1 -p 2022 -d target
-		sleep 4; ./$(EXEC_CLI) -i 127.0.0.1 -p 2022 -d target/1
+run: $(EXEC_CLI)
+		./$(EXEC_CLI) -i 127.0.0.1 -p 2022 -d target &
+		./$(EXEC_CLI) -i 127.0.0.1 -p 2022 -d target/1 &
 
 debug: $(EXEC)
 		gdb ./$(EXEC) -p target
