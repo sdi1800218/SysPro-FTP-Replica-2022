@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
         }
 
         /* Listen for incoming connections */
-        if (listen(sock, 5) < 0) {
+        if (listen(sock, 64) < 0) {
             perror_exit("[dataServer] listen()");
         }
 

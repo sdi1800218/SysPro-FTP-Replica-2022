@@ -169,8 +169,8 @@ void *comms_thread(void *p) {
 	/* Mutex for the ages */
 	pthread_mutex_t socket_mutex;
 	if (pthread_mutex_init(&socket_mutex, NULL) == -1) {
-        perror("[comms_threads] pthread_mutex_init() socket mutex");
-        exit(EXIT_FAILURE);
+		close(new_sock);
+        perror_exit("[comms_threads] pthread_mutex_init() socket mutex");
     }
 
 	/* Make some VLAs */

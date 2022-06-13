@@ -138,7 +138,7 @@ int pthreadpool_add_task(pthreadpool *pool, void* (*function)(void *), void *arg
     /* Acquire mutex */
     pthread_mutex_lock(&pool->queue_mutex);
 
-    /* Critical Section BEGINS here */
+        /* Critical Section BEGINS here */
 
     /* If queue is full then wait */
     while (pool->task_queue_sz == pool->queue_sz) {
@@ -164,7 +164,7 @@ int pthreadpool_add_task(pthreadpool *pool, void* (*function)(void *), void *arg
         pthread_cond_broadcast(&(pool->queue_not_empty));
     }
 
-    /* END of Critical Section */
+        /* END of Critical Section */
 
     /* Release mutex */
     pthread_mutex_unlock(&pool->queue_mutex);

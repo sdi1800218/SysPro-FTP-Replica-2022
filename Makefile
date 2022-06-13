@@ -46,8 +46,13 @@ run: $(EXEC_CLI)
 		./$(EXEC_CLI) -i 127.0.0.1 -p 2022 -d target &
 		./$(EXEC_CLI) -i 127.0.0.1 -p 2022 -d target/1 &
 
-debug: $(EXEC)
-		gdb ./$(EXEC) -p target
+example:
+		mkdir -p $(SERV)target/1/2
+		mkdir -p $(SERV)target/1/3
+		echo "hello" > $(SERV)target/1/4.txt
+		touch $(SERV)target/1/5.pdf
+		touch $(SERV)target/1/2/6.mp4
+		echo "#include <stdio.h>" > $(SERV)target/1/3/7.c
 
 deliver:
 		make clean

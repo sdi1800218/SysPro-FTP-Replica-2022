@@ -1,36 +1,77 @@
-## Project 1
-### Friendly Title: Sniffing Files
+# Project 2
+## Friendly Title: FTP Replica
 
 - sdi1800218
 - Charalampos Pantazis
 
-### Build/Run directions
-- `make`: makes it
-- `make run`: makes and runs an example
+## Build/Run directions
+- `make dataServer`: makes the server inside the dataServer dir
+- `make remoteClient`: makes the client inside the client dir
+- `make example`: makes the example server dir tree with a few data
 - `make clean`: cleans objects and executables
 
-### Analysis
-- O kwdikas den einai plirws leitourgikos. Exei race condition stin periptwsi pou den yparxei available worker kai kanei spawn enan kainourio. Episis iparxoun errors sto continuous reading apo to Listener (crasharei meta to proto petyximeno) kai errors sto string manipulation gia ti swsti morfopoiisi twn URLs.
+## Analysis
 
-- Exei xrisimopoiithei i proseggisi me to -lpthread sta compilation directives opos to edeikse o kirios Pasxalis sta ergastiria twn Leitourgikwn to perasmeno examino. Me ton idio tropo eixe graftei kai i prwti ergasia gia to sygekrimeno mathima. Mou aresei proswpika perissotero auti h proseggisi giati epitrepei to abstraction twn child processes san "functions" pou kalountai. Odigei se katharotero kwdika (ektos apo twra pou xriastike na grapso 10 helper functions). Vevaia ena meionektima einai pos o g++ den exei tin epithymiti symperifora kai psaxnei ta symbols. Autos einai kai o logos pou egrapsa ti lusi mou gia to Project se C kai oxi C++. Ki ekei ti patisa; eixa kairo na kano string manipulation se C kai afierwsa to perissotero mou xrono sto debugging tous.
+- NOTE: Tha ta grapso sta agglika, einai pio eukolo giati apla scraparo ta comments tou kwdika gia na eksigiso tin ylopoiisi.
 
-- Xrisimopoieitai i domi Ouras (Queue) apo to Chapter 4 tou vivliou tou Sedgewick me kapoies parallages. Ithela enan aplo tipo dedomenon logo tou oti den paizei megalo rolo sti sigekrimeni askisi. Gia to extensibility tou project that itan xrisimo na iparxei uniqueness sta process pou mpainoun stin oura. Ena duplicity check to exo ylopoiisei alla den mou xreiastike en teli.
+### Abstract
 
-- Xrisimopoieitai access(2) anti gia stat(2) gia ton elegxo arxeion.
+I really liked the scope of this assignment. Programming the thread pool was the best part. Really strong entity and very clean.
+As a bonus to the assignment I wanted to implement secure tunneling functionality powered by WireGuard tunnels.
+The code for embedding WireGuard tunnels can be found at (https://git.zx2c4.com/wireguard-tools/tree/contrib/embeddable-wg-library).
+It would be like a deliberate implementation of sftp. The two reasons for not doing that were (a) time restrictions (debugging) and
+(b) the above implementation needs root permission to create the wg network interfaces and the constraint that the code must run to the uni's linux machines was violated (at least on my part, I had no root in order to test).
 
-- To Queue einai global ston sniffer mazi me mia domi pou sysxetizei ta children PIDs me ta named pipe tous. Kai ta dio gia logous handling sta signals. Episis global einai to PID tou listener prokeimenou na stelnetai SIGKILL kata to SIGINT.
+### The protocol
 
-- Oi kliseis me to path parameter prepei na einai paradosiakes me './' i full path kai trailing '/'. Me to neoteriko tropo den tha paiksei.
+The protocol of communication between client and server has 3 Phases:
+- Phase 1: Handshake, "hello" back and forth like B.A.T.M.A.N
+- Phase 2: Session data, exchange the variables necessary to start the file transfer.
+            The variables are in order block size(s2c), directory(c2s), count of files to deliver(s2c).
+            Each variable exchange is terminated by an ACK from the other end.
+- Phase 3: Files, for each file, each thread sends (a) file path (b) metadata;
+            then, sends a "FILE" handshake and after ACK starts sending the file in blocks.
 
-- Ta named pipes einai tis morfis "worker#".
+### dataServer
 
-- O Listener einai aplos, no comment.
+- Creates the socket, binds it and listens to it; then loops in a while waiting for connections to accept.
+- It has 2 thread "functions" the comms_thread and worker_thread. When a new connection arrives it crafts a package with data needed by the comms_thread and then switches the connection handling to the comms_thread.
+- It should have a sigint handler, but it was buggy how I did it and also I saw somewhere mentioned that it is out of scope.
 
-- O Worker anoigei to named pipe tou (pou to pairnei kai san argument) kai meta kanei 'raise(SIGSTOP)' mesa se ena while loop. An exei katanoithei swsta, molis ekkinisei o Worker kanei oso to dynato syntomotera SIGSTOP kai ginetai handle apo to SIGCHLD tou Manager prokeimenou na ginei diathesimos sto Queue.
+- The comms_worker():
+    * Performs phases 1 and 2 of the protocol in the side of the server.
+    * Respectively the proto_serv_phase_one() and proto_serv_phase_two() serve each.
+    * One is trivial; in phase 2 it fetches the names of all files found in the directory after it exchanges the data with the client.
+    * Effectively it starts Phase 3 of the protocol since it calls pthreadpool_add_task() to schedule the tasks ( function calls to worker_thread() ) in the thread pool;
+        it also creates a new pkg (pkg2) with data that the worker_thread needs in order to continue.
 
-- Gia to extraction twn URLs ginontai 2 perasmata, ena gia na metrisei ta URLs kai ena 2o gia na ta scraparei. Endimesa lseek() aka rewind. To approach auto einai asximo; to ksero; tha to allaza.
+- The thread_worker():
+    * Performs Phase 3 of the protocol.
+    * It uses a pthread mutex to lock the socket when it starts transmission.
+    * It uses normal IO to open and read files. Because it uses fgets(), the block size is effectively smaller by 1 because of '\0'; this is reflected in the calculation of the packets to be transmitted.
 
-- Yparxoun analytika sxolia kai tags sta printf gia na katalavete ki eseis pos kineitai i leitourgia, ma kai pou erxetai se dysleitourgia.
+- Other notes:
+    * The Server can use any directory in it's local path as the file tree root, the dir is not hard-coded. I used ./target/ as my testcase.
+
+### remoteClient
+
+- Creates a socket and connect()s to the server.
+- It runs all pahses of the protocol.
+- Each phase is handled by a function.
+- 1 and 2 are trivial. proto_cli_phase_three() performs phase 3 and it's the receiving mirror of the functionality of worker_thread();
+- After all are done it dies.
+- The directory that is requested gets copied to the current working directory.
+
+### pthreadpool
+
+- The thread pool follows a generic implementation. It is made in such a way to be provided as a library, so that it can be reused.
+- It provides an API and works with the power of function pointers.
+- The argument passed is of type void * and gets cast depending on the task.
+- It implements the queue data struct for tasks internally and defines 3 pthread conditions (pthread_cond_t) to schedule the waiting threads.
+
+### common
+
+- perror_exit() and sanitize() functions are from the slides.
 
 ### Others
-- Whitespace consistent και 80 Column proud.
+- Whitespace consistent and 80 Column proud.

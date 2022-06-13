@@ -343,8 +343,7 @@ int main(int argc, char *argv[]) {
 
     /* Connect to remote server */
     if (connect(sock, serverptr, sizeof(server)) == -1) {
-        perror("[remoteClient] Socket connect() failure!");
-        exit(EXIT_FAILURE);
+        perror_exit("[remoteClient] Socket connect() failure!");
     }
     else {
 	    fprintf(stderr, ("[remoteClient] Connected\n"));
@@ -356,8 +355,8 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "[PHASE 1]: ");
 
     if (proto_cli_phase_one(sock) == -1) {
-        perror("[remoteClient] Protocol Phase 1 failure!");
-        exit(EXIT_FAILURE);
+        close(sock);
+        perror_exit("[remoteClient] Protocol Phase 1 failure!");
     }
     else {
 		fprintf(stderr, "SUCCESS\n");
@@ -368,8 +367,8 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "[PHASE 2]: START\n");
 
     if (proto_cli_phase_two(sock, &block_size, &file_count, dir) == -1) {
-        perror("[remoteClient] Protocol Phase 2 failure!");
-        exit(EXIT_FAILURE);
+        close(sock);
+        perror_exit("[remoteClient] Protocol Phase 2 failure!");
     }
     else {
 		fprintf(stderr, "[PHASE 2]: SUCCESS\n");
@@ -380,9 +379,8 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "[PHASE 3]: START\n");
 
     if (proto_cli_phase_three(sock, file_count, block_size) == -1) {
-        perror("[remoteClient] Protocol Phase 3 failure!");
         close(sock);
-        exit(EXIT_FAILURE);
+        perror_exit("[remoteClient] Protocol Phase 3 failure!");
     }
     else {
 		fprintf(stderr, "[PHASE 3]: SUCCESS\n");
