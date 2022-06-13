@@ -1,4 +1,8 @@
-/* remoteClient.c
+/* remoteClient.c: client to the defined server.
+    Communicates to server via the protocol in 3 phases.
+    Requests a directory in the server tree,
+    recursively gets all files and dirs in the tree
+    and copies them locally.
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -176,7 +180,8 @@ int proto_cli_phase_two(int sock, int *blk_sz, int *file_cnt, char *dir) {
     return 0;
 }
 
-/* TODO */
+/* Facilitates files phase 3 of the protocol.
+    For each file: creates its path, receives its data and copies them in */
 int proto_cli_phase_three(int sock, int files, int block_size) {
 
     int congest, read_size, file_size;
@@ -230,8 +235,6 @@ int proto_cli_phase_three(int sock, int files, int block_size) {
         /* wACK */
     	wACK(sock);
 
-        fprintf(stderr, "Received: %s\n", file_path);
-
         /* (4) Make path for the file */
         char path[MAXFILENAME];
         strncpy(path, file_path, strlen(file_path) + 1);
@@ -241,15 +244,15 @@ int proto_cli_phase_three(int sock, int files, int block_size) {
         FILE *fp;
         if (access(file_path, F_OK) == 0) {
 
-            fprintf(stderr, "trying to remove file %s\n", file_path);
+            //fprintf(stderr, "trying to remove file %s\n", file_path);
 
-            // if it exists: remove and create
+            /* if it exists: remove and create */
             if (remove(file_path) == -1) {
                 perror("[remoteClient]: remove() file path");
                 return -1;
             }
 
-            // with "w" it creates
+            /* with the "w" flag, it creates the file */
             fp = fopen(file_path, "w");
 
             if (fp == NULL) {
@@ -288,11 +291,13 @@ int proto_cli_phase_three(int sock, int files, int block_size) {
 
             snprintf(data, block_size, "%s", buffer);
 
-            fprintf(stderr, "Received packet %d, containing: %s\n", packet, data);
+            //fprintf(stderr, "Received packet %d, containing: %s\n", packet, data);
 
             fputs(data, fp);
 
         }
+
+        fprintf(stderr, "Received: %s\n", file_path);
 
         fclose(fp);
 
@@ -311,7 +316,7 @@ int proto_cli_phase_three(int sock, int files, int block_size) {
     return 0;
 }
 
-/* remoteClient: TODO */
+/* remoteClient: Look at line 1 */
 int main(int argc, char *argv[]) {
 
     int opt, sock, port;
@@ -418,20 +423,5 @@ int main(int argc, char *argv[]) {
     /* ~~~~~~~~~~~~~~~~~~ END PROTOCOL ~~~~~~~~~~~~~~~~~~ */
     return 0;
 
-/*
-    // Assert path exists
-    if (access(path, F_OK) != 0) {
-        perror("[Manager::access] Path does not exist!");
-        exit(EXIT_FAILURE);
-    }
 
-    // Assert path is RW
-    if (access(path, R_OK|W_OK) != 0) {
-        perror("[Manager::access] Path is not R/W!");
-        exit(EXIT_FAILURE);
-    }
-
-    //close(listen[WRITE]);
-    //dup2(listen[READ], 0);
-*/
 }

@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
-#include <signal.h>
+#include <signal.h>         /* for signal */
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -14,30 +14,18 @@
 
 #include "dataServer.h"
 
-void cont_handler(int);
-void kill_handler(int);
-
-/* SIGCONT Handler */
-/*
-void cont_handler(int sig) {
-    printf("\t[Worker::Handler] I'm continuing now!\n");
-    return;
-}
+/* Worker Thread: Takes care of Phase 3 of the protocol.
+    Is called via the thread_pool by being programmed as a task.
+    Reads the requested file and returns it to the client via the open socket.
 */
-
-/* SIGKILL Handler */
-void kill_handler(int sig) {
-    printf("\t[Worker::Handler] Received a SIGKILL!\n");
-    printf("\t[Worker::Handler] Shuting down..");
-    exit(EXIT_SUCCESS);
-}
-
-/* Worker Thread: TODO */
-void *child_worker(void *arg) {
+void *worker_thread(void *arg) {
 
     int sock, congest, block_size;
     char handshake[5], *message, file_path[MAXFILENAME];
     //fprintf(stderr, "[Thread: %lu]: I am a Worker Thread!!!\n", pthread_self());
+
+    /* Ignore SIGINT */
+    //signal(SIGINT, SIG_IGN);
 
     pkg2 paketo = *(pkg2 *)arg;
     fprintf(stderr, "[Thread: %lu]: Received task: <%s, %d>\n",
@@ -59,7 +47,7 @@ void *child_worker(void *arg) {
     recv(sock, handshake, 5, 0);
 
 	if (strncmp(handshake, "ELIF", 5) != 0) {
-        perror("[child_communicator::phase_one] read() handshake");
+        perror("[comms_thread::phase_one] recv() handshake");
         fprintf(stderr, "%s\n", handshake);
 	}
 
@@ -73,7 +61,7 @@ void *child_worker(void *arg) {
 
     struct stat sb;
     if (stat(paketo.filename, &sb) == -1) {
-        perror_exit("[child_worker] stat()");
+        perror_exit("[worker_thread] stat()");
     }
 
     congest = htons(sb.st_size);
@@ -98,6 +86,8 @@ void *child_worker(void *arg) {
         packets = (sb.st_size / (block_size - 1)) + 1;
     }
 
+    fprintf(stderr, "[Thread: %lu]: About to read file %s\n", pthread_self(), file_path);
+
     for (int packet = 0; packet < packets; ++packet) {
 
         char block[block_size];
@@ -118,71 +108,6 @@ void *child_worker(void *arg) {
     pthread_mutex_unlock(paketo.socket_mutex);
 
     //fprintf(stderr, "[Thread: %lu]: FINISHED!!!\n", pthread_self());
-
-    //while( (read_size = recv(new_sock, client_ackfer, block_sz, 0)) > 0 ) {
-		/* Send the message back to client */
-		//write(new_sock, client_ackfer, strlen(client_ackfer));
-	//}
-
-    // int fifo_fd;
-    // char filename[ackSIZE+1];
-
-    // pid_t me = getpid(), pops = getppid();
-    // printf("\t[Worker] I am Worker child %d and my pops is %d\n", me, pops);
-
-    // // Ignore SIGINT
-    // signal(SIGINT, SIG_IGN);
-
-    // // Handle SIGCONT
-    // //signal(SIGCONT, cont_handler);
-
-    // // Handle SIGKILL
-    // signal(SIGKILL, kill_handler);
-
-    // // Open named pipe
-    // if ((fifo_fd = open(fifo, O_RDONLY | O_NONBLOCK)) < 0) {
-    //     perror("\t[Worker] FIFO open problem");
-    //     exit(3);
-    // }
-
-    // while (1) {
-    //     // Block until continued
-
-    //     printf("\t[Worker] I'm gonna block myself!\n");
-    //     raise(SIGSTOP);
-
-    //     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-    //     // Waiting for SIGCONT
-    //     /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
-
-    //     char **urls = NULL;
-    //     int count, bytes_read;
-
-    //     // Read from named pipe
-    //     if ( (bytes_read = read(fifo_fd, filename, ackSIZE)) < 0) {
-    //         perror("\t[Worker] Problem in reading from FIFO") ;
-    //         exit(5);
-    //     }
-
-    //     // Sanitize
-    //     filename[bytes_read-1] = '\0';
-
-    //     printf ("\t[Worker] Filename Received: %s\n", filename) ;
-    //     //fflush (stdout);
-
-    //     // Extract all urls from filename
-    //     count = extractURLs(filename, urls);
-    //     printf("\t[Worker] Count %d\n", count);
-
-    //     //for (int i = 0; i < count; ++i)
-    //         //printf("\t[Worker] URLs array index %d contains: %s\n", i, urls[i]);
-
-    //     // Uniq/count and output
-    //     //cropURLs(urls, count);
-
-    //     // Count occurences of URLs and write to output file
-    //     //count_and_out(urls, filename);
-    // }
 
     return 0;
 }

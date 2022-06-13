@@ -4,7 +4,7 @@ CFLAGS 	 = -Wall -Werror -g -c
 LDFLAGS  = -lpthread # needed to spawn children as separate processes
 
 # Objects and executables
-OBJS_SERV = dataServer.o child_worker.o child_communicator.o pthreadpool.o
+OBJS_SERV = dataServer.o worker_thread.o comms_thread.o pthreadpool.o
 OBJS_CLI = remoteClient.o
 EXEC_SERV = dataServer
 EXEC_CLI = remoteClient
@@ -14,11 +14,11 @@ PTP = pthreadpool
 pthreadpool.o: $(PTP)/pthreadpool.c
 		$(COMPILER) $(CFLAGS) $(PTP)/pthreadpool.c $(PTP)/pthreadpool.h
 
-child_worker.o: child_worker.c
-		$(COMPILER) $(CFLAGS) child_worker.c
+worker_thread.o: worker_thread.c
+		$(COMPILER) $(CFLAGS) worker_thread.c
 
-child_communicator.o: child_communicator.c
-		$(COMPILER) $(CFLAGS) child_communicator.c
+comms_thread.o: comms_thread.c
+		$(COMPILER) $(CFLAGS) comms_thread.c
 
 dataServer.o: dataServer.c
 		$(COMPILER) $(CFLAGS) dataServer.c dataServer.h

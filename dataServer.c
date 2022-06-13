@@ -1,4 +1,7 @@
-/* dataServer.c */
+/* dataServer.c: Server that handles multiple clients in parallel.
+    Replies to clients requesting files from the local file structure.
+    Uses a thread pool to handle different task workloads.
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -16,28 +19,8 @@
 #include "pthreadpool/pthreadpool.h"
 #include "dataServer.h"
 
-/* Extracts the filename from inotifywait events */
-char *get_filename(char *str) {
-
-    char *result = NULL;
-    char *inbetween;
-    const char *CREATEpattern = "CREATE ";
-    const char *MOVEDpattern = "MOVED_TO ";
-
-    inbetween = strstr(str, CREATEpattern);
-    if (inbetween != NULL) {
-        result = inbetween + strlen(CREATEpattern);
-        //printf("%s\n", result);
-    }
-
-    inbetween = strstr(str, MOVEDpattern);
-    if (inbetween != NULL) {
-        result = inbetween + strlen(MOVEDpattern);
-        //printf("%s\n", result);
-    }
-
-    return result;
-}
+/* Signal flag */
+volatile sig_atomic_t sigint_flag = 0;
 
 /* Print usage */
 void usage(char *exec_name) {
@@ -49,6 +32,12 @@ void usage(char *exec_name) {
 /* Wait for all dead child processes */
 void sigchld_handler(int sig) {
     while (waitpid( -1, NULL, WNOHANG) > 0);
+}
+
+/* Destroy the thread pool and exit */
+void sigint_handler(int sig) {
+    sigint_flag = 1;
+    return;
 }
 
 /* helper shorthand */
@@ -83,7 +72,7 @@ void sanitize(char *str) {
     *dest = '\0';
 }
 
-/* dataServer:  */
+/* dataServer: Look at line 1  */
 int main(int argc, char *argv[]) {
 
     int sock, port, new_sock, thread_num, queue_sz, block_sz, opt;
@@ -100,6 +89,9 @@ int main(int argc, char *argv[]) {
 
     /* Reap dead children asynchronously */
     signal (SIGCHLD, sigchld_handler);
+
+    /* Handle CTRL+C (SIGINT) */
+    //signal (SIGINT, sigint_handler);
 
     /* Parse cmd arguments */
     while ((opt = getopt(argc, argv, ":p:s:q:b:")) != -1) {
@@ -132,140 +124,65 @@ int main(int argc, char *argv[]) {
     /* Initialize Thread Pool of Worker Threads */
     PTP = pthreadpool_create(thread_num, queue_sz);
 
-    /* Make-a-TCP-socket */
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0) ) == -1) {
-        perror_exit("[dataServer] Socket creation failed!");
-        exit(EXIT_FAILURE);
-    }
+    /* Operate while no signal is received */
+    while (!sigint_flag) {
 
-    server.sin_family = AF_INET;
-    server.sin_addr.s_addr = htonl(INADDR_ANY);
-    server.sin_port = htons(port);
-
-    /* Bind with a port */
-    //if ( bind_on_port(sock, port, &server) == -1 ) {
-    if (bind(sock, serverptr, sizeof(server))) {
-        perror_exit("[dataServer] Socket bind() failed!");
-        exit(EXIT_FAILURE);
-    }
-
-    /* Listen for incoming connections */
-    if (listen(sock, 5) < 0) {
-        perror_exit("[dataServer] listen()");
-    }
-
-    /* Accept incoming connection; create thread to handle */
-    fprintf(stderr, "[dataServer] Server was successfully initialized...\n");
-	fprintf(stderr, "[dataServer] Waiting for incoming on port %d\n", port);
-
-	//int c = sizeof(struct sockaddr_in);
-	while( (new_sock = accept(sock, clientptr, &clientlen)) ) {
-
-        if ( new_sock < 0 ) {
-            perror_exit("[dataServer] accept()");
-        }
-        fprintf(stderr, "[dataServer] Connection accepted\n");
-
-        /* It works! */
-		pthread_t comms_thread;
-		int *temp_sock = malloc(sizeof(int *));
-		*temp_sock = new_sock;
-
-        /* Mak-a-pkg */
-        pkg p;
-        p.sock = *temp_sock;
-        p.block_size = block_sz;
-        p.pool = PTP;
-
-        /* Make-a-thread */
-		if (pthread_create(&comms_thread, NULL, child_communicator, &p) < 0) {
-			perror_exit("[dataServer] Thread creation error");
-		}
-
-		// Now join the thread, so that we dont terminate before the thread
-		// pthread_join(comms_thread, NULL);
-	}
-
-    // TODO: Destroy Thread Pool
-
-/*
-    close(listen[WRITE]);
-    //dup2(listen[READ], 0);
-
-    // Wait for new reads
-    while(1) {
-        //printf("hello\n");
-        int fifo_fd, bytes_write;
-        pid_t chosen_worker;
-        char read_buffer[BUFSIZE];
-
-        // Read from pipe
-        int bytes_read = read(listen[READ], read_buffer, sizeof(read_buffer));
-
-        if ( bytes_read > 0 ) {
-
-            //ensure proper C string
-            read_buffer[bytes_read-1] = '\0';
-
-            // 1. Read
-            printf("[Manager] Read %d bytes: %s \n", bytes_read, read_buffer);
-
-            // 2. Extract Filename
-            char *filename = get_filename(read_buffer);
-            printf("[Manager] Filename: %s \n", filename);
-
-            char *pipe;
-            // 3. Get next available worker
-            if (QUEUEempty(avail_workers)) {
-                // Make a new one
-                chosen_worker = make_new_worker(numofworkers);
-                ++numofworkers;
-
-                if ( (fifo_fd = open(pipe, O_WRONLY | O_NONBLOCK)) < 0) {
-                    perror_exit("[Manager] FIFO open error");
-                    printf("[Manager] %s\n", pipe);
-                    exit(1);
-                }
-
-                printf("[Manager] Opened FIFO\n");
-
-                //printf("%d\n", numofworkers);
-            }
-            else {
-                chosen_worker = QUEUEget(avail_workers);
-                pipe = fetch_pipe(chosen_worker);
-
-                //printf("[Manager] Opening FIFO: %s\n", pipe);
-                if ( (fifo_fd = open(pipe, O_WRONLY)) < 0) {
-                    perror_exit("[Manager] FIFO open error");
-                    printf("[Manager] %s\n", pipe);
-                    exit(1);
-                }
-                printf("[Manager] Opened FIFO\n");
-            }
-
-            // Add watched path in the filename to open
-            char *fixed_filename = strcat(path, "/");
-            char *full_filename = strncat(fixed_filename, filename, strlen(filename));
-
-            //printf("[Manager] Writing..\n");
-            if (( bytes_write = write(fifo_fd, full_filename, strlen(full_filename)+1) ) == -1) {
-                perror_exit ("[Manager] Error in Writing");
-                exit(2);
-            }
-            printf("[Manager] Write completed in FIFO\n");
-
-            // 5. Send sigcont
-            printf("[Manager] Sending SIGCONT\n");
-            kill(chosen_worker, SIGCONT);
-
-            //close(fifo_fd);
-            //fflush(stdout);
+        /* Make-a-TCP-socket */
+        if ((sock = socket(AF_INET, SOCK_STREAM, 0) ) == -1) {
+            perror_exit("[dataServer] Socket creation failed!");
         }
 
-        //close(listen[READ]);
+        server.sin_family = AF_INET;
+        server.sin_addr.s_addr = htonl(INADDR_ANY);
+        server.sin_port = htons(port);
+
+        /* Bind with a port */
+        if (bind(sock, serverptr, sizeof(server))) {
+            perror_exit("[dataServer] Socket bind() failed!");
+        }
+
+        /* Listen for incoming connections */
+        if (listen(sock, 5) < 0) {
+            perror_exit("[dataServer] listen()");
+        }
+
+        /* Accept incoming connection; create thread to handle */
+        fprintf(stderr, "[dataServer] Server was successfully initialized...\n");
+        fprintf(stderr, "[dataServer] Waiting for incoming on port %d\n", port);
+
+        //int c = sizeof(struct sockaddr_in);
+        while( (new_sock = accept(sock, clientptr, &clientlen)) ) {
+
+            if ( new_sock < 0 ) {
+                perror_exit("[dataServer] accept()");
+            }
+            fprintf(stderr, "[dataServer] Connection accepted\n");
+
+            /* It works! */
+            pthread_t communication_thread;
+            int *temp_sock = malloc(sizeof(int *));
+            *temp_sock = new_sock;
+
+            /* Mak-a-pkg */
+            pkg p;
+            p.sock = *temp_sock;
+            p.block_size = block_sz;
+            p.pool = PTP;
+
+            /* Make-a-thread */
+            if (pthread_create(&communication_thread, NULL, comms_thread, &p) < 0) {
+                perror_exit("[dataServer] Thread creation error");
+            }
+
+            // Now join the thread, so that we dont terminate before the thread
+            // pthread_join(comms_thread, NULL);
+        }
     }
-*/
+
+    /* SIGINT Received */
+    /* Destroy Thread Pool */
+    fprintf(stderr, "Received SIGINT\tStopping..\n");
+    pthreadpool_destroy(PTP);
 
     return 0;
 }

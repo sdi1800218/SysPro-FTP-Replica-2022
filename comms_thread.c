@@ -7,16 +7,17 @@
 #include <arpa/inet.h>      /* for hton */
 #include <pthread.h> 		/* por dios */
 #include <dirent.h> 		/* for *dir */
+#include <signal.h>			/* for signal */
 
 #include "dataServer.h"
 
 /* Helper that waits for ACK message */
 int rACK(int sock) {
     char ack[4];
-    read(sock, &ack, sizeof(ack));
+    recv(sock, &ack, sizeof(ack), 0);
 
     if (strncmp(ack, "ACK", 3) != 0) {
-        perror("[child_communicator] read() ACK");
+        perror("[comms_thread] recv() ACK");
         fprintf(stderr, "%s\n", ack);
         return -1;
     }
@@ -37,7 +38,7 @@ void recurse_dir(char *dir_path, char *files[MAXFILES], int *count) {
 	DIR *dir = opendir(dir_path);
 
 	if (dir == NULL) {
-		perror("[child_comm::recurse_dir] opendir()");
+		perror("[comms_thread::recurse_dir] opendir()");
 		fprintf(stderr, "%s\n", dir_path);
 		return;
 	}
@@ -94,14 +95,14 @@ int proto_serv_phase_one(int sock) {
 	send(sock, message, strlen(message), 0);
 
 	/* (2) Recv "hello" handshake from client */
-	//fprintf(stderr, "[child_communicator::phase_one] Waiting client handshake...");
+	//fprintf(stderr, "[comms_thread::phase_one] Waiting client handshake...");
 
 	char handshake[6];
 
-	read(sock, handshake, 6);
+	recv(sock, handshake, 6, 0);
 
 	if (strncmp(handshake, "hello", 5) != 0) {
-        perror("[child_communicator::phase_one] read() handshake");
+        perror("[comms_thread::phase_one] recv() handshake");
         fprintf(stderr, "%s\n", handshake);
 		return -1;
 	}
@@ -123,7 +124,7 @@ int proto_serv_phase_two(int sock, int block_sz,
 
 	/* rACK */
 	if (rACK(sock) != 0) {
-        perror("[child_communicator::phase_two] rACK() block size");
+        perror("[comms_thread::phase_two] rACK() block size");
         return -1;
     }
 
@@ -163,7 +164,7 @@ int proto_serv_phase_two(int sock, int block_sz,
 
 	/* rACK */
 	if (rACK(sock) != 0) {
-        perror("[child_communicator::phase_two] rACK() file count");
+        perror("[comms_thread::phase_two] rACK() file count");
         return -1;
     }
 
@@ -172,20 +173,23 @@ int proto_serv_phase_two(int sock, int block_sz,
 
 /* Communication Thread, takes care of communication with the client;
 	Must follow the protocol */
-void *child_communicator(void *p) {
+void *comms_thread(void *p) {
 
 	//fprintf(stderr, "\t [Thread %lu]:\n", pthread_self());
 
 	/* Decompress our package */
+	int file_count;
 	pkg paketo = *(pkg *)p;
 	int new_sock = paketo.sock;
 	int block_sz = paketo.block_size;
-	int file_count;
+
+	/* Ignore SIGINT */
+    //signal(SIGINT, SIG_IGN);
 
 	/* Mutex for the ages */
 	pthread_mutex_t socket_mutex;
 	if (pthread_mutex_init(&socket_mutex, NULL) == -1) {
-        perror("[child_comms] pthread_mutex_init() socket mutex");
+        perror("[comms_threads] pthread_mutex_init() socket mutex");
         exit(EXIT_FAILURE);
     }
 
@@ -199,7 +203,7 @@ void *child_communicator(void *p) {
 	fprintf(stderr, "[Thread: %lu]: PHASE 1: ", pthread_self());
     if (proto_serv_phase_one(new_sock) == -1) {
 		close(new_sock);
-        perror_exit("[child_communicator] Protocol Phase 1 failure!");
+        perror_exit("[comms_thread] Protocol Phase 1 failure!");
     }
 	else {
 		fprintf(stderr, "SUCCESS\n");
@@ -233,7 +237,7 @@ void *child_communicator(void *p) {
 		fprintf(stderr, "[Thread: %lu]: Adding file %s to the queue...\n",
 							pthread_self(), pases[t].filename);
 
-		pthreadpool_add_task(paketo.pool, child_worker, &pases[t]);
+		pthreadpool_add_task(paketo.pool, worker_thread, &pases[t]);
 	}
 	/* ~~~~~~~~~ PHASE 3 END ~~~~~~~~~ */
 
