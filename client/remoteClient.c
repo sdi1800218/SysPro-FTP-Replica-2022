@@ -241,8 +241,8 @@ int proto_cli_phase_three(int sock, int files, int block_size) {
         }
 
         /* (6) Receive file, block-by-block */
-
         int packets;
+
         /* Check whether packets fit perfectly on block size */
         if ((file_size % (block_size - 1)) == 0) {
             packets = file_size / (block_size - 1);

@@ -2,7 +2,6 @@
 ## Friendly Title: FTP Replica
 
 - sdi1800218
-- Charalampos Pantazis
 
 ## Build/Run directions
 - `make dataServer`: makes the server inside the dataServer dir
@@ -12,11 +11,8 @@
 
 ## Analysis
 
-- NOTE: Tha ta grapso sta agglika, einai pio eukolo giati apla scraparo ta comments tou kwdika gia na eksigiso tin ylopoiisi.
-
 ### Abstract
 
-I really liked the scope of this assignment. Programming the thread pool was the best part. Really strong entity and very clean.
 As a bonus to the assignment I wanted to implement secure tunneling functionality powered by WireGuard tunnels.
 The code for embedding WireGuard tunnels can be found at (https://git.zx2c4.com/wireguard-tools/tree/contrib/embeddable-wg-library).
 It would be like a deliberate implementation of sftp. The two reasons for not doing that were (a) time restrictions (debugging) and
